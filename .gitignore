@@ -1,0 +1,7 @@
+venv/
+rag_knowledge_base/
+.env
+chroma_db/
+__pycache__/
+.venv
+.DS_Store

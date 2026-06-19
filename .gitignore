@@ -5,3 +5,4 @@ chroma_db/
 __pycache__/
 .venv
 .DS_Store
+instructions.txt

@@ -1,21 +1,25 @@
-# Web Scraping & Async Engine
+# Web Scraping
 crawl4ai
-asyncio
 
-# Environment & Configuration Management
+# Environment Management
 python-dotenv
 
 # Vector Database & Embeddings
+chromadb
 langchain-chroma
 langchain-ollama
 
-# LangChain Core, Text Splitters, and Legacy Agents compatibility
+# LangChain Ecosystem
+langchain
 langchain-core
 langchain-text-splitters
-langchain
-
-# Note: The third script explicitly imports from 'langchain_classic'
 langchain-classic
 
-# UI Framework
+# Audio & Voice Processing
+faster-whisper
+soundfile
+av
+
+# UI Framework & Components
 streamlit
+streamlit-mic-recorder

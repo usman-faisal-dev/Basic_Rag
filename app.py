@@ -5,9 +5,11 @@ from faster_whisper import WhisperModel
 import tempfile
 
 from dotenv import load_dotenv
+load_dotenv()
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain.chat_models import init_chat_model
+from langchain_groq import ChatGroq
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
@@ -21,7 +23,7 @@ st.caption("Ask questions about your ingested local documents.")
 
 # 2. Load Resources & Cache them to prevent reloading on every click
 @st.cache_resource
-def initialize_rag_agent():
+def initialize_rag_agent(selected_model):
     load_dotenv()  
     
     try:
@@ -35,11 +37,23 @@ def initialize_rag_agent():
             persist_directory=os.getenv("DATABASE_LOCATION"), 
         )
 
-        llm = init_chat_model(
-            os.getenv("CHAT_MODEL"),
-            model_provider=os.getenv("MODEL_PROVIDER"),
+        local_model_name = os.getenv("CHAT_MODEL", "llama3.2:3b")
+        local_llm = init_chat_model(
+            local_model_name,
+            model_provider=os.getenv("MODEL_PROVIDER", "ollama"),
             temperature=0
         )
+
+        if selected_model == f"Local ({local_model_name})":
+            llm = local_llm
+        else:
+            groq_api_key = os.getenv("GROQ_API_KEY", "")
+            groq_llm = ChatGroq(
+                model=selected_model,
+                temperature=0,
+                api_key=groq_api_key
+            )
+            llm = groq_llm.with_fallbacks([local_llm])
         
         @tool
         def retrieve_knowledge(query: str) -> str:
@@ -92,11 +106,6 @@ def load_whisper_model():
     )
     return model
 
-# Initialize the agent
-agent_executor = initialize_rag_agent()
-
-whisper_model = load_whisper_model()
-
 # 3. Handle Session State for Chat History
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []  # Internal history for the LLM
@@ -117,8 +126,24 @@ with st.sidebar:
         st.rerun()
     
     st.divider()
-    st.markdown(f"**Chat Model:** `{os.getenv('CHAT_MODEL')}`")
+    local_model_name = os.getenv("CHAT_MODEL", "llama3.2:3b")
+    
+    model_options = [
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+        "openai/gpt-oss-120b",
+        "qwen/qwen3.6-27b",
+        f"Local ({local_model_name})"
+    ]
+    
+    selected_model = st.selectbox("Select Model", options=model_options, index=1)
+    
     st.markdown(f"**Embedding:** `{os.getenv('EMBEDDING_MODEL')}`")
+
+# Initialize the agent
+agent_executor = initialize_rag_agent(selected_model)
+
+whisper_model = load_whisper_model()
 
 # 4. Display Existing Messages
 for message in st.session_state.ui_messages:

@@ -150,7 +150,7 @@ for message in st.session_state.ui_messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-col_text, col_mic, col_send = st.columns([0.7, 0.15, 0.15])
+col_text, col_mic, col_send = st.columns([0.7, 0.07, 0.23])
 
 if "pending_transcribed_text" in st.session_state:
     st.session_state.text_input_value = st.session_state.pending_transcribed_text

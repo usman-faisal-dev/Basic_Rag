@@ -23,3 +23,6 @@ av
 # UI Framework & Components
 streamlit
 streamlit-mic-recorder
+
+# Document Parsing
+llama-parse

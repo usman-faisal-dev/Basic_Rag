@@ -3,6 +3,15 @@ import sys
 import streamlit as st
 from faster_whisper import WhisperModel
 import tempfile
+import asyncio
+from pathlib import Path
+from uuid import uuid4
+
+# Ingestion imports
+from crawl4ai import AsyncWebCrawler
+from llama_parse import LlamaParse
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -87,7 +96,7 @@ def initialize_rag_agent(selected_model):
         agent = create_tool_calling_agent(llm, tools, prompt)
         agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
         
-        return agent_executor
+        return agent_executor, vector_store
 
     except Exception as e:
         st.error(f"Error initializing resources: {e}")
@@ -140,10 +149,96 @@ with st.sidebar:
     
     st.markdown(f"**Embedding:** `{os.getenv('EMBEDDING_MODEL')}`")
 
-# Initialize the agent
-agent_executor = initialize_rag_agent(selected_model)
+    # Initialize the agent and models before the ingestion UI so we can pass vector_store
+    agent_executor, vector_store = initialize_rag_agent(selected_model)
+    whisper_model = load_whisper_model()
 
-whisper_model = load_whisper_model()
+    st.divider()
+
+    def process_and_add_to_chroma(markdown_content, title, source_filename, v_store):
+        # Save to rag_knowledge_base
+        output_dir = Path("rag_knowledge_base")
+        output_dir.mkdir(exist_ok=True)
+        
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '_', '-')).strip().replace(" ", "_")
+        if not safe_title:
+            safe_title = "Ingested_Doc"
+            
+        file_path = output_dir / f"{safe_title}.md"
+        file_path.write_text(markdown_content, encoding="utf-8")
+        
+        # Process for Chroma
+        doc = Document(
+            page_content=markdown_content,
+            metadata={
+                "source": source_filename,
+                "title": title
+            }
+        )
+        
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            length_function=len,
+            is_separator_regex=False,
+        )
+        
+        chunks = text_splitter.split_documents([doc])
+        
+        uuids = [str(uuid4()) for _ in range(len(chunks))]
+        v_store.add_documents(documents=chunks, ids=uuids)
+
+    st.header("Optional Data Ingestion")
+    with st.expander("Ingest New Documents", expanded=False):
+        st.markdown("Add documents to your knowledge base instantly.")
+        
+        # URL Ingestion
+        ingest_url = st.text_input("Ingest from URL", placeholder="https://example.com")
+        if st.button("Ingest URL"):
+            if ingest_url:
+                with st.spinner("Scraping URL..."):
+                    async def scrape_url(url):
+                        async with AsyncWebCrawler() as crawler:
+                            return await crawler.arun(url=url)
+                    
+                    try:
+                        result = asyncio.run(scrape_url(ingest_url))
+                        if result.success:
+                            markdown_content = result.markdown
+                            title = ingest_url.split("/")[-1] or "Scraped_URL"
+                            process_and_add_to_chroma(markdown_content, title, "URL", vector_store)
+                            st.success(f"Successfully ingested URL: {title}")
+                        else:
+                            st.error(f"Failed to scrape: {result.error_message}")
+                    except Exception as e:
+                        st.error(f"Error during URL scraping: {e}")
+
+        # File Ingestion
+        uploaded_file = st.file_uploader("Upload PDF or TXT", type=["pdf", "txt"])
+        if st.button("Ingest File"):
+            if uploaded_file:
+                with st.spinner("Parsing file with LlamaParse..."):
+                    try:
+                        # Save uploaded file temporarily
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
+                            tmp_file.write(uploaded_file.getvalue())
+                            tmp_path = tmp_file.name
+
+                        parser = LlamaParse(
+                            api_key=os.getenv("LLAMA_CLOUD_API_KEY"),
+                            result_type="markdown"
+                        )
+                        
+                        documents = parser.load_data(tmp_path)
+                        markdown_content = "\n".join([doc.text for doc in documents])
+                        
+                        process_and_add_to_chroma(markdown_content, uploaded_file.name, uploaded_file.name, vector_store)
+                        os.remove(tmp_path)
+                        st.success(f"Successfully ingested file: {uploaded_file.name}")
+                        
+                    except Exception as e:
+                        st.error(f"Error parsing file: {e}")
+
 
 # 4. Display Existing Messages
 for message in st.session_state.ui_messages:
